@@ -1,0 +1,46 @@
+# Ignore all files without extensions (e.g. compiled binaries, executable tools)
+*
+!*.*
+!*/
+
+# General binaries and packaging
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries, coverage and profiling outputs
+*.test
+*.out
+*.cov
+*.prof
+coverage.txt
+
+# Dependency directories
+vendor/
+
+# IDE and Editor configurations
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+.project
+.classpath
+.settings/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Project-specific / Local Data / Temp files
+tmp/
+data/
+*.db

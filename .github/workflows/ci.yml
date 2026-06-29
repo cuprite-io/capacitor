@@ -1,0 +1,36 @@
+name: Capacitor CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+        cache: true
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run Standard Tests
+      run: go test -v -race -short ./...
+
+    - name: Run Chaos & Stress Tests
+      run: go test -v -timeout 10m -run "TestCapacitor_Stress|TestCapacitor_Chaos" ./...
+
+    - name: Check Formatting
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "The following files are not formatted correctly:"
+          gofmt -s -l .
+          exit 1
+        fi
