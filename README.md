@@ -1,22 +1,32 @@
 # Capacitor
 
-**High-voltage synchronization for local-first apps.**
+<p align="center">
+  <b>High-voltage synchronization for local-first apps.</b>
+</p>
 
-Capacitor is a distributed, persistent, and sub-millisecond caching layer for the Cuprite Flux engine. It provides high availability and zero-latency local reads/writes by utilizing a local-first architecture synchronized via a background replication log and gossip-based discovery.
+<p align="center">
+  <img src="assets/mascot.png" alt="Capacitor Mascot" width="300" />
+</p>
 
-## Key Features
+<p align="center">
+  Capacitor is a distributed, persistent, and sub-millisecond caching layer for the Cuprite Flux engine. It provides high availability and zero-latency local reads/writes by utilizing a local-first architecture synchronized via a background replication log and gossip-based discovery.
+</p>
+
+---
+
+## ✨ Key Features
 
 - **Local-First Performance**: All operations (`Get`, `Set`, `Increment`) are performed against a local sharded **BadgerDB** instance. The network is never on the hot path.
 - **Hybrid Logical Clocks (HLC)**: Ensures causality-preserving order for distributed updates without requiring perfect clock synchronization across nodes.
 - **Eventual Consistency via CRDTs**:
-    - **Registers**: Uses Last-Write-Wins (LWW) based on HLC timestamps.
-    - **Counters**: Implements state-based PN-Counters for idempotent increments.
-    - **Sliding Windows**: Distributed windowed counters with automated pruning.
+  - **Registers**: Uses Last-Write-Wins (LWW) based on HLC timestamps.
+  - **Counters**: Implements state-based PN-Counters for idempotent increments.
+  - **Sliding Windows**: Distributed windowed counters with automated pruning.
 - **Asynchronous Replication**: A binary circular **Delta Log** ensures high-throughput, low-latency propagation of updates between peers.
 - **Secure by Default**: Supports mTLS for replication streams and shared-secret authentication for the gossip layer.
 - **Observability**: Built-in metrics tracking for end-to-end replication latency and operation performance.
 
-## Architecture
+## 🏗️ Architecture
 
 Capacitor is designed for high-throughput environments where read/write latency is critical:
 
@@ -25,15 +35,15 @@ Capacitor is designed for high-throughput environments where read/write latency 
 3.  **Sync Path**: Background replicators stream entries from the Delta Log to peers over TCP/TLS.
 4.  **Conflict Resolution**: Received updates are merged into the local store using HLC-based conflict resolution, ensuring all nodes eventually converge to the same state.
 
-## Performance
+## 📊 Performance
 
-| Operation | Latency (ns/op) | Latency (ms) |
-| :--- | :--- | :--- |
-| **Set** | ~340 | 0.00034 ms |
-| **Get** | ~64 | 0.00006 ms |
-| **Increment** | ~1,423 | 0.00142 ms |
+| Operation     | Latency (ns/op) | Latency (ms) |
+| :------------ | :-------------- | :----------- |
+| **Set**       | ~340            | 0.00034 ms   |
+| **Get**       | ~64             | 0.00006 ms   |
+| **Increment** | ~1,423          | 0.00142 ms   |
 
-## Usage
+## 💻 Usage
 
 ```go
 import "github.com/cuprite-io/capacitor"
@@ -61,7 +71,7 @@ count, _ := cp.Increment(ctx, "page_views")
 windowCount, _ := cp.IncrementSlidingWindow(ctx, "rate_limit:user_1", 1 * time.Minute)
 ```
 
-## Testing
+## 🧪 Testing
 
 Run the comprehensive test suite, including chaos and convergence tests:
 
