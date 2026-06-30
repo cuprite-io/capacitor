@@ -65,6 +65,72 @@ func BenchmarkCapacitor_Get(b *testing.B) {
 	}
 }
 
+func BenchmarkCapacitor_GetScan(b *testing.B) {
+	tmpDir, err := os.MkdirTemp("", "capacitor-bench-getscan-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := capacitor.Config{
+		NodeID:   "bench-node",
+		DataPath: tmpDir,
+		BindPort: 0,
+	}
+
+	cp, err := capacitor.New(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cp.Close()
+
+	ctx := context.Background()
+	cp.Set(ctx, "key", "value", 0)
+
+	var dest string
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		cp.GetScan(ctx, "key", &dest)
+	}
+}
+
+type benchSession struct {
+	UserID   string `msgpack:"user_id"`
+	IsActive bool   `msgpack:"is_active"`
+}
+
+func BenchmarkCapacitor_GetScanStruct(b *testing.B) {
+	tmpDir, err := os.MkdirTemp("", "capacitor-bench-getscanstruct-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := capacitor.Config{
+		NodeID:   "bench-node",
+		DataPath: tmpDir,
+		BindPort: 0,
+	}
+
+	cp, err := capacitor.New(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cp.Close()
+
+	ctx := context.Background()
+	session := benchSession{UserID: "user_42", IsActive: true}
+	cp.Set(ctx, "key", session, 0)
+
+	var dest benchSession
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = cp.GetScan(ctx, "key", &dest)
+	}
+}
+
 func BenchmarkCapacitor_Increment(b *testing.B) {
 	tmpDir, err := os.MkdirTemp("", "capacitor-bench-incr-*")
 	if err != nil {

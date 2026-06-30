@@ -37,11 +37,12 @@ Capacitor is designed for high-throughput environments where read/write latency 
 
 ## 📊 Performance
 
-| Operation     | Latency (ns/op) | Latency (ms) |
-| :------------ | :-------------- | :----------- |
-| **Set**       | ~340            | 0.00034 ms   |
-| **Get**       | ~64             | 0.00006 ms   |
-| **Increment** | ~554            | 0.00055 ms   |
+| Operation        | Latency (ns/op) | Latency (ms) |
+| :--------------- | :-------------- | :----------- |
+| **Set**          | ~350            | 0.00035 ms   |
+| **Get**          | ~81             | 0.00008 ms   |
+| **Get (Scan)**   | ~37             | 0.00003 ms   |
+| **Increment**    | ~571            | 0.00057 ms   |
 
 ## 💻 Usage
 
@@ -63,6 +64,10 @@ defer cp.Close()
 // Standard Cache Operations
 cp.Set(ctx, "session:123", "data", 10 * time.Minute)
 val, _ := cp.Get(ctx, "session:123")
+
+// Structured Scanning (similar to json.Unmarshal)
+var session UserSession
+_ = cp.GetScan(ctx, "session:123", &session)
 
 // Distributed Counters
 count, _ := cp.Increment(ctx, "page_views")

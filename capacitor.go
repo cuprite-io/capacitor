@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -393,6 +394,67 @@ func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Dur
 	})
 	f.metrics.SetLat.Record(time.Since(start))
 	return nil
+}
+
+// GetScan retrieves a key's value and unmarshals it into the destination pointer dest
+// (similar to json.Unmarshal or database rows.Scan).
+func (f *Capacitor) GetScan(ctx context.Context, key string, dest any) error {
+	rawVal, err := f.store.get(key)
+	if err != nil {
+		return err
+	}
+	if rawVal == nil {
+		return fmt.Errorf("capacitor: key %s not found", key)
+	}
+
+	// 1. Reflection-based Direct Assignment Fast Path (In-Memory Hot Path Bypass)
+	destVal := reflect.ValueOf(dest)
+	if destVal.Kind() == reflect.Ptr {
+		elemVal := destVal.Elem()
+		if elemVal.Type() == reflect.TypeOf(rawVal) {
+			elemVal.Set(reflect.ValueOf(rawVal))
+			return nil
+		}
+	}
+
+	// Direct assignment for simple types
+	switch d := dest.(type) {
+	case *string:
+		switch v := rawVal.(type) {
+		case string:
+			*d = v
+		case []byte:
+			*d = string(v)
+		default:
+			b, _ := msgpack.Marshal(v)
+			*d = string(b)
+		}
+		return nil
+	case *[]byte:
+		switch v := rawVal.(type) {
+		case []byte:
+			*d = v
+		case string:
+			*d = []byte(v)
+		default:
+			*d, _ = msgpack.Marshal(v)
+		}
+		return nil
+	}
+
+	// Fallback to MsgPack unmarshaling
+	switch v := rawVal.(type) {
+	case []byte:
+		return msgpack.Unmarshal(v, dest)
+	case string:
+		return msgpack.Unmarshal([]byte(v), dest)
+	default:
+		b, err := msgpack.Marshal(v)
+		if err != nil {
+			return err
+		}
+		return msgpack.Unmarshal(b, dest)
+	}
 }
 
 // Get retrieves a key-value pair's serialized value from the local cache database.
