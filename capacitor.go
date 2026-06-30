@@ -68,6 +68,9 @@ type Config struct {
 
 	// Logger is the structured logging engine injected into the Capacitor instance.
 	Logger Logger
+
+	// DisableMetrics disables internal metrics latency tracking for maximum read/write performance.
+	DisableMetrics bool
 }
 
 // Capacitor represents an active-active, local-first replicated caching node.
@@ -93,6 +96,7 @@ type Capacitor struct {
 	peerStops  sync.Map // map[string]chan struct{}
 	streamAddr string
 	stop       chan struct{}
+	disableMetrics bool
 }
 
 // New initializes, configures, and starts a local Capacitor node.
@@ -125,9 +129,10 @@ func New(cfg Config) (*Capacitor, error) {
 		metrics:   NewMetricsTracker(),
 		stop:      make(chan struct{}),
 		authToken: cfg.AuthToken,
-		logger:    cfg.Logger,
-		ctx:       ctx,
-		cancel:    cancel,
+		logger:         cfg.Logger,
+		ctx:            ctx,
+		cancel:         cancel,
+		disableMetrics: cfg.DisableMetrics,
 	}
 
 	srv, err := NewStreamServer(cp, fmt.Sprintf("0.0.0.0:%d", cfg.StreamPort), cfg.TLSConfig)
@@ -369,7 +374,10 @@ func (f *Capacitor) applyRemoteEntry(ctx context.Context, e LogEntry) {
 // log to propagate it to other nodes in the cluster. If a positive TTL is specified,
 // the key-value pair will automatically expire.
 func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
-	start := time.Now()
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
 	ts := f.hlc.Now()
 
 	// 1. Local Write
@@ -392,13 +400,29 @@ func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Dur
 		Value:  binVal,
 		TTL:    int64(ttl.Milliseconds()),
 	})
-	f.metrics.SetLat.Record(time.Since(start))
+	if !f.disableMetrics {
+		f.metrics.SetLat.Record(time.Since(start))
+	}
 	return nil
 }
 
 // GetScan retrieves a key's value and unmarshals it into the destination pointer dest
 // (similar to json.Unmarshal or database rows.Scan).
 func (f *Capacitor) GetScan(ctx context.Context, key string, dest any) error {
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
+
+	err := f.getScanInternal(ctx, key, dest)
+
+	if !f.disableMetrics {
+		f.metrics.GetLat.Record(time.Since(start))
+	}
+	return err
+}
+
+func (f *Capacitor) getScanInternal(ctx context.Context, key string, dest any) error {
 	rawVal, err := f.store.get(key)
 	if err != nil {
 		return err
@@ -460,13 +484,25 @@ func (f *Capacitor) GetScan(ctx context.Context, key string, dest any) error {
 // Get retrieves a key-value pair's serialized value from the local cache database.
 // Returns an empty string and nil error if the key is not found or has expired.
 func (f *Capacitor) Get(ctx context.Context, key string) (string, error) {
-	start := time.Now()
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
+
+	res, err := f.getInternal(ctx, key)
+
+	if !f.disableMetrics {
+		f.metrics.GetLat.Record(time.Since(start))
+	}
+	return res, err
+}
+
+func (f *Capacitor) getInternal(ctx context.Context, key string) (string, error) {
 	val, err := f.store.get(key)
 	if err != nil {
 		return "", err
 	}
 	if val == nil {
-		f.metrics.GetLat.Record(time.Since(start))
 		return "", nil
 	}
 
@@ -480,14 +516,32 @@ func (f *Capacitor) Get(ctx context.Context, key string) (string, error) {
 		b, _ := msgpack.Marshal(v)
 		res = string(b)
 	}
-	f.metrics.GetLat.Record(time.Since(start))
 	return res, nil
 }
+
+// Exists checks if a key exists in the cache and has not expired.
+func (f *Capacitor) Exists(ctx context.Context, key string) (bool, error) {
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
+
+	exists, err := f.store.exists(key)
+
+	if !f.disableMetrics {
+		f.metrics.GetLat.Record(time.Since(start))
+	}
+	return exists, err
+}
+
 
 // IncrementBy increments a distributed PN-Counter key by the specified delta.
 // It tracks counts per-node to construct CRDT conflict-free convergence.
 func (f *Capacitor) IncrementBy(ctx context.Context, key string, delta int64) (int64, error) {
-	start := time.Now()
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
 	val, err := f.store.increment(key, f.nodeID, float64(delta))
 	if err != nil {
 		return 0, err
@@ -502,7 +556,9 @@ func (f *Capacitor) IncrementBy(ctx context.Context, key string, delta int64) (i
 		Delta:  nodeVal,
 		NodeID: f.nodeID,
 	})
-	f.metrics.IncrLat.Record(time.Since(start))
+	if !f.disableMetrics {
+		f.metrics.IncrLat.Record(time.Since(start))
+	}
 	return int64(val), nil
 }
 

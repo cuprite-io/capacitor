@@ -138,7 +138,7 @@ graph TD
 
 ### 3.1 Capacitor (`capacitor.go`)
 The root orchestrator that binds all subsystems together:
-*   **API Functions**: Exposes thread-safe public APIs (`Set`, `Get`, `GetScan`, `IncrementBy`, etc.) for client interaction.
+*   **API Functions**: Exposes thread-safe public APIs (`Set`, `Get`, `GetScan`, `Exists`, `IncrementBy`, etc.) for client interaction.
 *   **Replication Loop**: Spawns dynamic background replicators (`startPeerReplicator`) upon discovering new members from gossip events.
 *   **Remote Entry Dispatch**: Implements `applyRemoteEntry` to validate, deserialize, and apply incoming sync operations from remote nodes.
 

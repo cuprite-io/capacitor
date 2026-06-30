@@ -290,5 +290,3 @@ func TestCapacitor_TTLReplicationAndEviction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, val2, "Key should be evicted on Node 2 after TTL expiration")
 }
-
-

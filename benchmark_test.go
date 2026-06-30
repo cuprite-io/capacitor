@@ -17,9 +17,10 @@ func BenchmarkCapacitor_Set(b *testing.B) {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := capacitor.Config{
-		NodeID:   "bench-node",
-		DataPath: tmpDir,
-		BindPort: 0,
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
 	}
 
 	cp, err := capacitor.New(cfg)
@@ -44,9 +45,10 @@ func BenchmarkCapacitor_Get(b *testing.B) {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := capacitor.Config{
-		NodeID:   "bench-node",
-		DataPath: tmpDir,
-		BindPort: 0,
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
 	}
 
 	cp, err := capacitor.New(cfg)
@@ -73,9 +75,10 @@ func BenchmarkCapacitor_GetScan(b *testing.B) {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := capacitor.Config{
-		NodeID:   "bench-node",
-		DataPath: tmpDir,
-		BindPort: 0,
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
 	}
 
 	cp, err := capacitor.New(cfg)
@@ -108,9 +111,10 @@ func BenchmarkCapacitor_GetScanStruct(b *testing.B) {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := capacitor.Config{
-		NodeID:   "bench-node",
-		DataPath: tmpDir,
-		BindPort: 0,
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
 	}
 
 	cp, err := capacitor.New(cfg)
@@ -139,9 +143,10 @@ func BenchmarkCapacitor_Increment(b *testing.B) {
 	defer os.RemoveAll(tmpDir)
 
 	cfg := capacitor.Config{
-		NodeID:   "bench-node",
-		DataPath: tmpDir,
-		BindPort: 0,
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
 	}
 
 	cp, err := capacitor.New(cfg)
@@ -160,7 +165,7 @@ func BenchmarkCapacitor_Increment(b *testing.B) {
 
 func BenchmarkConcurrency_Sharded(b *testing.B) {
 	ctx := context.Background()
-	cfg := capacitor.Config{NodeID: "bench-node", DataPath: ""}
+	cfg := capacitor.Config{NodeID: "bench-node", DataPath: "", DisableMetrics: true}
 	cp, err := capacitor.New(cfg)
 	if err != nil {
 		b.Fatal(err)
@@ -184,3 +189,34 @@ func BenchmarkConcurrency_Sharded(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkCapacitor_Exists(b *testing.B) {
+	tmpDir, err := os.MkdirTemp("", "capacitor-bench-exists-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := capacitor.Config{
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
+	}
+
+	cp, err := capacitor.New(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cp.Close()
+
+	ctx := context.Background()
+	cp.Set(ctx, "key", "value", 0)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, _ = cp.Exists(ctx, "key")
+	}
+}
+

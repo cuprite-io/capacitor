@@ -39,10 +39,11 @@ Capacitor is designed for high-throughput environments where read/write latency 
 
 | Operation        | Latency (ns/op) | Latency (ms) |
 | :--------------- | :-------------- | :----------- |
-| **Set**          | ~350            | 0.00035 ms   |
-| **Get**          | ~81             | 0.00008 ms   |
-| **Get (Scan)**   | ~37             | 0.00003 ms   |
-| **Increment**    | ~571            | 0.00057 ms   |
+| **Set**          | ~226            | 0.00022 ms   |
+| **Get**          | ~21             | 0.00002 ms   |
+| **Get (Scan)**   | ~29             | 0.00003 ms   |
+| **Increment**    | ~409            | 0.00041 ms   |
+| **Exists**       | ~19             | 0.00002 ms   |
 
 ## 💻 Usage
 

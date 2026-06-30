@@ -371,6 +371,20 @@ func (s *store) get(key string) (any, error) {
 	return nil, nil
 }
 
+func (s *store) exists(key string) (bool, error) {
+	shard := s.getShard(key)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	if vTS, ok := shard.cache[key]; ok {
+		if vTS.ExpiresAt > 0 && time.Now().UnixNano() > vTS.ExpiresAt {
+			return false, nil
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+
 func (s *store) increment(key string, nodeID string, delta float64) (float64, error) {
 	nodeKey := fmt.Sprintf("c:%s:%s", key, nodeID)
 	shard := s.getShard(key)
