@@ -18,7 +18,7 @@
 
 - **Local-First Performance**: All operations (`Get`, `Set`, `Increment`) are performed against a local sharded **BadgerDB** instance. The network is never on the hot path.
 - **Hybrid Logical Clocks (HLC)**: Ensures causality-preserving order for distributed updates without requiring perfect clock synchronization across nodes.
-- **Eventual Consistency via CRDTs**:
+- **Eventual Consistency via CRDTs** (see the [Conflict Resolution Guide](docs/CONFLICT_RESOLUTION.md)):
   - **Registers**: Uses Last-Write-Wins (LWW) based on HLC timestamps.
   - **Counters**: Implements state-based PN-Counters for idempotent increments.
   - **Sliding Windows**: Distributed windowed counters with automated pruning.
@@ -28,7 +28,7 @@
 
 ## 🏗️ Architecture
 
-Capacitor is designed for high-throughput environments where read/write latency is critical:
+Capacitor is designed for high-throughput environments where read/write latency is critical. For a complete deep-dive into internal modules, data flows, and subsystem diagrams, see the [Architecture Guide](docs/ARCHITECTURE.md):
 
 1.  **Write Path**: When a write occurs, it is committed to the local BadgerDB shard and appended to an in-memory binary Delta Log.
 2.  **Discovery**: Nodes use the **SWIM protocol** (via HashiCorp Memberlist) to discover peers and maintain cluster membership.
@@ -41,7 +41,7 @@ Capacitor is designed for high-throughput environments where read/write latency 
 | :------------ | :-------------- | :----------- |
 | **Set**       | ~340            | 0.00034 ms   |
 | **Get**       | ~64             | 0.00006 ms   |
-| **Increment** | ~1,423          | 0.00142 ms   |
+| **Increment** | ~554            | 0.00055 ms   |
 
 ## 💻 Usage
 
