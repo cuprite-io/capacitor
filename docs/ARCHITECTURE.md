@@ -165,7 +165,7 @@ A high-performance streaming layer built over TCP:
 *   **Gossip Security**: Node registration and initial connections use SHA-256 derived secrets based on the cluster `AuthToken`.
 *   **Resource Pooling**: Employs buffer and connection pooling (`sync.Pool`) to avoid garbage collection overhead during peak network replication.
 
-### 3.6 Network (`network.go`)
+### 3.6 Network (`capacitor.go`)
 Integrates with `hashicorp/memberlist` to handle cluster membership, health check gossiping (SWIM protocol), and lightweight state sync.
 
 ---

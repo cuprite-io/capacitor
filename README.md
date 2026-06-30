@@ -16,7 +16,7 @@
 
 ## ✨ Key Features
 
-- **Local-First Performance**: All operations (`Get`, `Set`, `Increment`) are performed against a local sharded **BadgerDB** instance. The network is never on the hot path.
+- **Local-First Performance**: All operations (`Get`, `Set`, `Increment`) are performed against a sharded in-memory cache backed by local **BadgerDB** persistence. The network is never on the hot path.
 - **Hybrid Logical Clocks (HLC)**: Ensures causality-preserving order for distributed updates without requiring perfect clock synchronization across nodes.
 - **Eventual Consistency via CRDTs** (see the [Conflict Resolution Guide](docs/CONFLICT_RESOLUTION.md)):
   - **Registers**: Uses Last-Write-Wins (LWW) based on HLC timestamps.
@@ -30,7 +30,7 @@
 
 Capacitor is designed for high-throughput environments where read/write latency is critical. For a complete deep-dive into internal modules, data flows, and subsystem diagrams, see the [Architecture Guide](docs/ARCHITECTURE.md):
 
-1.  **Write Path**: When a write occurs, it is committed to the local BadgerDB shard and appended to an in-memory binary Delta Log.
+1.  **Write Path**: When a write occurs, it is committed to the sharded in-memory cache, appended to an in-memory binary Delta Log, and asynchronously flushed to the local BadgerDB database.
 2.  **Discovery**: Nodes use the **SWIM protocol** (via HashiCorp Memberlist) to discover peers and maintain cluster membership.
 3.  **Sync Path**: Background replicators stream entries from the Delta Log to peers over TCP/TLS.
 4.  **Conflict Resolution**: Received updates are merged into the local store using HLC-based conflict resolution, ensuring all nodes eventually converge to the same state.
