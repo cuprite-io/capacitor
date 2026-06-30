@@ -26,6 +26,14 @@ type Timestamp struct {
 	Logical  int32 `json:"l" msg:"l"`
 }
 
+// GreaterOrEqual returns true if this timestamp is logically greater than or equal to the other timestamp.
+func (t Timestamp) GreaterOrEqual(other Timestamp) bool {
+	if t.Physical != other.Physical {
+		return t.Physical > other.Physical
+	}
+	return t.Logical >= other.Logical
+}
+
 func NewHLC() *HLC {
 	return &HLC{
 		physical:  time.Now().UnixNano(),

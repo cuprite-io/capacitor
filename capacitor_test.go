@@ -193,3 +193,33 @@ func TestHLC_ClockSmashProtection(t *testing.T) {
 	assert.Equal(t, preSmashedPhysical, postPhysical, "Local physical clock should not change on error")
 	assert.Equal(t, preSmashedLogical, postLogical, "Local logical clock should not change on error")
 }
+
+func TestCapacitor_LogicalClockConflictResolution(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "capacitor-hlc-logical-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	cp, err := capacitor.New(capacitor.Config{NodeID: "node1", DataPath: tmpDir, BindPort: 0})
+	require.NoError(t, err)
+	defer cp.Close()
+
+	ctx := context.Background()
+
+	// Setup two timestamps at the identical physical time but different logical ticks
+	t0 := capacitor.Timestamp{Physical: 1000, Logical: 0}
+	t1 := capacitor.Timestamp{Physical: 1000, Logical: 1}
+
+	// 1. Apply t1 (newer logical component)
+	err = cp.Store().SetWithTSTest("key", "value-new", t1)
+	require.NoError(t, err)
+
+	// 2. Try to apply t0 (older logical component, same physical time)
+	err = cp.Store().SetWithTSTest("key", "value-old", t0)
+	require.NoError(t, err)
+
+	// 3. Verify that the newer logical write won (LWW) and old value was rejected
+	val, err := cp.Get(ctx, "key")
+	require.NoError(t, err)
+	assert.Equal(t, "value-new", val)
+}
+

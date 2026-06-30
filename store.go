@@ -290,16 +290,16 @@ func (s *store) flush() {
 }
 
 type valWithTS struct {
-	Value     any   `msgpack:"v"`
-	Timestamp int64 `msgpack:"t"`
+	Value     any       `msgpack:"v"`
+	Timestamp Timestamp `msgpack:"t"`
 }
 
-func (s *store) set(key string, value any, ts int64, ttl time.Duration) error {
+func (s *store) set(key string, value any, ts Timestamp) error {
 	shard := s.getShard(key)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
-	if existing, ok := shard.cache[key]; ok && existing.Timestamp >= ts {
+	if existing, ok := shard.cache[key]; ok && existing.Timestamp.GreaterOrEqual(ts) {
 		return nil
 	}
 

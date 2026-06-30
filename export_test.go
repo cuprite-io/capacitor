@@ -40,3 +40,7 @@ func (s *store) GetWindowSizeForTest(key string) int {
 	defer shard.mu.RUnlock()
 	return len(shard.windows[key])
 }
+
+func (s *store) SetWithTSTest(key string, value any, ts Timestamp) error {
+	return s.set(key, value, ts)
+}
