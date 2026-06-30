@@ -31,20 +31,47 @@ func (n noopLogger) Info(msg string, args ...any)  {}
 func (n noopLogger) Warn(msg string, args ...any)  {}
 func (n noopLogger) Error(msg string, args ...any) {}
 
+// Config defines the configuration parameters for a Capacitor node instance.
 type Config struct {
-	NodeID        string
-	BindAddr      string
-	BindPort      int    // Gossip port
-	StreamPort    int    // TCP Stream port
-	AdvertiseAddr string // NEW: Address to advertise to other nodes for TCP streams
-	Peers         []string
-	DataPath      string
-	LogSize       uint64
-	TLSConfig     *tls.Config // NEW: Optional TLS configuration for mTLS
-	AuthToken     string      // NEW: Shared secret for cluster authentication
-	Logger        Logger      // NEW: Injectable structured logger
+	// NodeID is the unique identifier for this node in the cluster. If left empty,
+	// a hostname-based identifier will be generated automatically.
+	NodeID string
+
+	// BindAddr is the network address for the gossip memberlist to bind to.
+	BindAddr string
+
+	// BindPort is the port number utilized for gossip memberlist communications.
+	BindPort int
+
+	// StreamPort is the port number utilized for replication TCP streams.
+	StreamPort int
+
+	// AdvertiseAddr is the IP address advertised to other nodes for establishing
+	// replication TCP streams.
+	AdvertiseAddr string
+
+	// Peers is the initial list of bootstrap addresses ("IP:port") of active cluster nodes.
+	Peers []string
+
+	// DataPath is the local directory path where BadgerDB files are persistently stored.
+	DataPath string
+
+	// LogSize is the capacity (maximum number of entries) of the in-memory circular Delta Log.
+	LogSize uint64
+
+	// TLSConfig is the optional configuration used to secure node-to-node replication streams using mTLS.
+	TLSConfig *tls.Config
+
+	// AuthToken is a shared secret token used to authenticate gossip join requests and TCP streams.
+	AuthToken string
+
+	// Logger is the structured logging engine injected into the Capacitor instance.
+	Logger Logger
 }
 
+// Capacitor represents an active-active, local-first replicated caching node.
+// It manages local key-value storage, cluster membership discovery, logical clocks,
+// and replication orchestration.
 type Capacitor struct {
 	nodeID    string
 	store     *store
@@ -67,6 +94,9 @@ type Capacitor struct {
 	stop       chan struct{}
 }
 
+// New initializes, configures, and starts a local Capacitor node.
+// This constructs the storage, starts the replication stream listener, and registers
+// the node with the gossip cluster.
 func New(cfg Config) (*Capacitor, error) {
 	if cfg.NodeID == "" {
 		hostname, _ := os.Hostname()
@@ -334,8 +364,9 @@ func (f *Capacitor) applyRemoteEntry(ctx context.Context, e LogEntry) {
 	f.store.updatePeerSeq(e.NodeID, e.Seq)
 }
 
-// CacheRepository implementation
-
+// Set writes a key-value pair to the local store and appends it to the replication
+// log to propagate it to other nodes in the cluster. If a positive TTL is specified,
+// the key-value pair will automatically expire.
 func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Duration) error {
 	start := time.Now()
 	ts := f.hlc.Now()
@@ -364,6 +395,8 @@ func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Dur
 	return nil
 }
 
+// Get retrieves a key-value pair's serialized value from the local cache database.
+// Returns an empty string and nil error if the key is not found or has expired.
 func (f *Capacitor) Get(ctx context.Context, key string) (string, error) {
 	start := time.Now()
 	val, err := f.store.get(key)
@@ -389,6 +422,8 @@ func (f *Capacitor) Get(ctx context.Context, key string) (string, error) {
 	return res, nil
 }
 
+// IncrementBy increments a distributed PN-Counter key by the specified delta.
+// It tracks counts per-node to construct CRDT conflict-free convergence.
 func (f *Capacitor) IncrementBy(ctx context.Context, key string, delta int64) (int64, error) {
 	start := time.Now()
 	val, err := f.store.increment(key, f.nodeID, float64(delta))
@@ -409,19 +444,23 @@ func (f *Capacitor) IncrementBy(ctx context.Context, key string, delta int64) (i
 	return int64(val), nil
 }
 
+// GetMetrics returns a snapshot summary of all built-in metrics (latencies, counts).
 func (f *Capacitor) GetMetrics() []Summary {
 	return f.metrics.GetSummary()
 }
 
+// Increment increments a distributed PN-Counter key by 1.
 func (f *Capacitor) Increment(ctx context.Context, key string) (int64, error) {
 	return f.IncrementBy(ctx, key, 1)
 }
 
+// GetCount retrieves the converged aggregate sum of a distributed counter across all nodes.
 func (f *Capacitor) GetCount(ctx context.Context, key string) (int64, error) {
 	val, err := f.store.getAggregateCount(key)
 	return int64(val), err
 }
 
+// IncrementParallel performs concurrent increment calls for multiple counter keys.
 func (f *Capacitor) IncrementParallel(ctx context.Context, keys []string) (map[string]int64, error) {
 	res := make(map[string]int64)
 	for _, k := range keys {
@@ -431,6 +470,8 @@ func (f *Capacitor) IncrementParallel(ctx context.Context, keys []string) (map[s
 	return res, nil
 }
 
+// IncrementMetric records a floating-point update to a distributed aggregate metric
+// (tracking both hit frequency and aggregated sums).
 func (f *Capacitor) IncrementMetric(ctx context.Context, key string, delta float64) (Metric, error) {
 	m, err := f.store.incrementMetric(key, f.nodeID, delta)
 	if err != nil {
@@ -447,10 +488,12 @@ func (f *Capacitor) IncrementMetric(ctx context.Context, key string, delta float
 	return m, nil
 }
 
+// GetMetric retrieves the aggregated Metric details (count, sum, average) for the specified key.
 func (f *Capacitor) GetMetric(ctx context.Context, key string) (Metric, error) {
 	return f.store.getAggregateMetric(key)
 }
 
+// IncrementMetricParallel updates multiple aggregate metrics concurrently.
 func (f *Capacitor) IncrementMetricParallel(ctx context.Context, keys map[string]float64) (map[string]Metric, error) {
 	res := make(map[string]Metric)
 	for k, d := range keys {
@@ -460,6 +503,8 @@ func (f *Capacitor) IncrementMetricParallel(ctx context.Context, keys map[string
 	return res, nil
 }
 
+// IncrementSlidingWindow appends an event timestamp for rate limiting or hit tracking,
+// and returns the count of active occurrences within the rolling window duration.
 func (f *Capacitor) IncrementSlidingWindow(ctx context.Context, key string, window time.Duration) (int64, error) {
 	ts := f.hlc.Now()
 	count, err := f.store.incrementSlidingWindow(key, ts.Physical, window)
@@ -476,6 +521,8 @@ func (f *Capacitor) IncrementSlidingWindow(ctx context.Context, key string, wind
 	return count, nil
 }
 
+// Close gracefully shuts down the node, leaving the SWIM gossip group, shutting down
+// active replication streams, and closing local storage engines.
 func (f *Capacitor) Close() error {
 	f.cancel()
 	close(f.stop)
