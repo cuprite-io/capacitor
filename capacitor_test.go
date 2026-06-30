@@ -223,3 +223,72 @@ func TestCapacitor_LogicalClockConflictResolution(t *testing.T) {
 	assert.Equal(t, "value-new", val)
 }
 
+func TestCapacitor_TTLReplicationAndEviction(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tmpDir1, err := os.MkdirTemp("", "capacitor-ttl-node1-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir1)
+
+	tmpDir2, err := os.MkdirTemp("", "capacitor-ttl-node2-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir2)
+
+	cfg1 := capacitor.Config{
+		NodeID:     "node1",
+		BindPort:   18001,
+		StreamPort: 18002,
+		DataPath:   tmpDir1,
+	}
+	cfg2 := capacitor.Config{
+		NodeID:     "node2",
+		BindPort:   18003,
+		StreamPort: 18004,
+		DataPath:   tmpDir2,
+		Peers:      []string{"127.0.0.1:18001"},
+	}
+
+	n1, err := capacitor.New(cfg1)
+	require.NoError(t, err)
+	defer n1.Close()
+
+	n2, err := capacitor.New(cfg2)
+	require.NoError(t, err)
+	defer n2.Close()
+
+	// Wait for nodes to discover each other
+	assert.Eventually(t, func() bool {
+		return n1.Memberlist().NumMembers() == 2 && n2.Memberlist().NumMembers() == 2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// Set key on Node 1 with a short TTL of 300 milliseconds
+	ttl := 300 * time.Millisecond
+	err = n1.Set(ctx, "ttl-key", "ttl-val", ttl)
+	require.NoError(t, err)
+
+	// 1. Verify it exists immediately on Node 1
+	val1, err := n1.Get(ctx, "ttl-key")
+	require.NoError(t, err)
+	assert.Equal(t, "ttl-val", val1)
+
+	// 2. Verify it gets replicated to Node 2 and is accessible before it expires
+	assert.Eventually(t, func() bool {
+		val2, err := n2.Get(ctx, "ttl-key")
+		return err == nil && val2 == "ttl-val"
+	}, 1*time.Second, 50*time.Millisecond)
+
+	// 3. Wait for TTL to expire (300ms + some buffer) and check both nodes have evicted the key
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify key is gone
+	val1, err = n1.Get(ctx, "ttl-key")
+	require.NoError(t, err)
+	assert.Empty(t, val1, "Key should be evicted on Node 1 after TTL expiration")
+
+	val2, err := n2.Get(ctx, "ttl-key")
+	require.NoError(t, err)
+	assert.Empty(t, val2, "Key should be evicted on Node 2 after TTL expiration")
+}
+
+

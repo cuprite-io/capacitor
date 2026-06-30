@@ -42,5 +42,5 @@ func (s *store) GetWindowSizeForTest(key string) int {
 }
 
 func (s *store) SetWithTSTest(key string, value any, ts Timestamp) error {
-	return s.set(key, value, ts)
+	return s.set(key, value, ts, 0)
 }

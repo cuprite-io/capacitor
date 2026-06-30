@@ -166,6 +166,9 @@ func (s *store) load() error {
 
 				var vTS valWithTS
 				if err := msgpack.Unmarshal(val, &vTS); err == nil {
+					if vTS.ExpiresAt > 0 && time.Now().UnixNano() > vTS.ExpiresAt {
+						return nil
+					}
 					shard.cache[key] = vTS
 				}
 				return nil
@@ -189,16 +192,32 @@ func (s *store) flushLoop() {
 }
 
 func (s *store) janitorLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			s.pruneStaleWindows()
+			s.pruneExpiredKeys()
 		case <-s.stop:
 			return
 		}
+	}
+}
+
+func (s *store) pruneExpiredKeys() {
+	now := time.Now().UnixNano()
+	for i := 0; i < numShards; i++ {
+		shard := s.shards[i]
+		shard.mu.Lock()
+		for key, vTS := range shard.cache {
+			if vTS.ExpiresAt > 0 && now > vTS.ExpiresAt {
+				delete(shard.cache, key)
+				shard.dirty[key] = true
+			}
+		}
+		shard.mu.Unlock()
 	}
 }
 
@@ -238,10 +257,11 @@ func (s *store) flush() {
 
 		// Snapshot dirty keys and values under lock
 		type snapshotItem struct {
-			key   string
-			val   any
-			count float64
-			win   []int64
+			key     string
+			val     any
+			count   float64
+			win     []int64
+			deleted bool
 		}
 		items := make([]snapshotItem, 0, len(shard.dirty))
 
@@ -250,15 +270,24 @@ func (s *store) flush() {
 
 		for k := range oldDirty {
 			item := snapshotItem{key: k}
+			found := false
 			if v, ok := shard.cache[k]; ok {
 				item.val = v
+				found = true
 			} else if c, ok := shard.counts[k]; ok {
 				item.count = c
+				found = true
 			} else if w, ok := shard.windows[k]; ok {
 				// Copy window slice to avoid race if it's pruned later
 				item.win = append([]int64(nil), w...)
+				found = true
 			} else if seq, ok := shard.peerSeqs[k]; ok {
 				item.count = float64(seq) // Borrow count field for seq
+				found = true
+			}
+
+			if !found {
+				item.deleted = true
 			}
 			items = append(items, item)
 		}
@@ -266,6 +295,10 @@ func (s *store) flush() {
 
 		// Serialize and add to WriteBatch outside of shard lock
 		for _, item := range items {
+			if item.deleted {
+				_ = wb.Delete([]byte(item.key))
+				continue
+			}
 			if strings.HasPrefix(item.key, "meta:seq:") {
 				seqBuf := make([]byte, 8)
 				binary.BigEndian.PutUint64(seqBuf, uint64(item.count))
@@ -274,7 +307,18 @@ func (s *store) flush() {
 			}
 			if item.val != nil {
 				data, _ := msgpack.Marshal(item.val)
-				_ = wb.Set([]byte(item.key), data)
+				vTS := item.val.(valWithTS)
+				if vTS.ExpiresAt > 0 {
+					remaining := time.Duration(vTS.ExpiresAt - time.Now().UnixNano())
+					if remaining > 0 {
+						e := badger.NewEntry([]byte(item.key), data).WithTTL(remaining)
+						_ = wb.SetEntry(e)
+					} else {
+						_ = wb.Delete([]byte(item.key))
+					}
+				} else {
+					_ = wb.Set([]byte(item.key), data)
+				}
 			} else if item.win != nil {
 				for _, ts := range item.win {
 					wKey := fmt.Sprintf("sw:%s:%d", item.key, ts)
@@ -292,9 +336,10 @@ func (s *store) flush() {
 type valWithTS struct {
 	Value     any       `msgpack:"v"`
 	Timestamp Timestamp `msgpack:"t"`
+	ExpiresAt int64     `msgpack:"e,omitempty"`
 }
 
-func (s *store) set(key string, value any, ts Timestamp) error {
+func (s *store) set(key string, value any, ts Timestamp, ttl time.Duration) error {
 	shard := s.getShard(key)
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -303,7 +348,12 @@ func (s *store) set(key string, value any, ts Timestamp) error {
 		return nil
 	}
 
-	shard.cache[key] = valWithTS{Value: value, Timestamp: ts}
+	var expiresAt int64
+	if ttl > 0 {
+		expiresAt = ts.Physical + ttl.Nanoseconds()
+	}
+
+	shard.cache[key] = valWithTS{Value: value, Timestamp: ts, ExpiresAt: expiresAt}
 	shard.dirty[key] = true
 	return nil
 }
@@ -313,6 +363,9 @@ func (s *store) get(key string) (any, error) {
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
 	if vTS, ok := shard.cache[key]; ok {
+		if vTS.ExpiresAt > 0 && time.Now().UnixNano() > vTS.ExpiresAt {
+			return nil, nil
+		}
 		return vTS.Value, nil
 	}
 	return nil, nil

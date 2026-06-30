@@ -320,7 +320,7 @@ func (f *Capacitor) applyRemoteEntry(ctx context.Context, e LogEntry) {
 	case MsgSet:
 		var val any
 		_ = msgpack.Unmarshal(e.Value, &val)
-		f.store.set(e.Key, val, e.TS)
+		f.store.set(e.Key, val, e.TS, time.Duration(e.TTL)*time.Millisecond)
 	case MsgIncr:
 		f.store.setNodeCount(e.Key, e.NodeID, e.Delta)
 	case MsgMetric:
@@ -341,7 +341,7 @@ func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Dur
 	ts := f.hlc.Now()
 
 	// 1. Local Write
-	if err := f.store.set(key, value, ts); err != nil {
+	if err := f.store.set(key, value, ts, ttl); err != nil {
 		return err
 	}
 
@@ -358,7 +358,7 @@ func (f *Capacitor) Set(ctx context.Context, key string, value any, ttl time.Dur
 		Op:     MsgSet,
 		Key:    key,
 		Value:  binVal,
-		TTL:    int64(ttl.Seconds()),
+		TTL:    int64(ttl.Milliseconds()),
 	})
 	f.metrics.SetLat.Record(time.Since(start))
 	return nil
