@@ -438,6 +438,37 @@ func (s *store) incrementSlidingWindow(key string, ts int64, window time.Duratio
 	return count, nil
 }
 
+func (s *store) addWindowTimestamp(key string, ts int64) error {
+	shard := s.getShard(key)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	win := shard.windows[key]
+	// Insert in sorted order without duplicates
+	idx := len(win)
+	for i, t := range win {
+		if t == ts {
+			return nil // Duplicate, ignore
+		}
+		if t > ts {
+			idx = i
+			break
+		}
+	}
+
+	// Insert ts at index idx
+	if idx == len(win) {
+		shard.windows[key] = append(win, ts)
+	} else {
+		win = append(win, 0)
+		copy(win[idx+1:], win[idx:])
+		win[idx] = ts
+		shard.windows[key] = win
+	}
+	shard.dirty[key] = true
+	return nil
+}
+
 func float64ToBytes(f float64) []byte {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))

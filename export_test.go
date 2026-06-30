@@ -33,3 +33,10 @@ func (h *HLC) GetInternalTimeForTest() (int64, int32) {
 	defer h.mu.Unlock()
 	return h.physical, h.logical
 }
+
+func (s *store) GetWindowSizeForTest(key string) int {
+	shard := s.getShard(key)
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+	return len(shard.windows[key])
+}

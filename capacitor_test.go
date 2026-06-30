@@ -137,6 +137,22 @@ func TestCapacitor_Cluster(t *testing.T) {
 			return true
 		}, 5*time.Second, 100*time.Millisecond)
 	})
+
+	t.Run("Distributed Sliding Window", func(t *testing.T) {
+		// Node 0 increments sliding window
+		_, err := nodes[0].IncrementSlidingWindow(ctx, "dist-window", 1*time.Minute)
+		require.NoError(t, err)
+
+		// Wait for replication and verify
+		assert.Eventually(t, func() bool {
+			for i := 0; i < 3; i++ {
+				if nodes[i].Store().GetWindowSizeForTest("dist-window") != 1 {
+					return false
+				}
+			}
+			return true
+		}, 5*time.Second, 100*time.Millisecond)
+	})
 }
 
 func TestHLC_ClockSmashProtection(t *testing.T) {

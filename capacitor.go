@@ -326,6 +326,8 @@ func (f *Capacitor) applyRemoteEntry(ctx context.Context, e LogEntry) {
 	case MsgMetric:
 		// Metrics are eventually consistent across nodes
 		f.store.incrementMetric(e.Key, e.NodeID, e.Delta)
+	case MsgWindow:
+		f.store.addWindowTimestamp(e.Key, e.TS.Physical)
 	}
 
 	// Record persistent sequence for catch-up after restart
