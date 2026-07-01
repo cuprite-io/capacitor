@@ -14,6 +14,7 @@ const (
 	MsgIncr
 	MsgMetric
 	MsgWindow
+	MsgDelete
 )
 
 // Message is the container for all gossip data.

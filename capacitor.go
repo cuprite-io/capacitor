@@ -364,6 +364,8 @@ func (f *Capacitor) applyRemoteEntry(ctx context.Context, e LogEntry) {
 		f.store.incrementMetric(e.Key, e.NodeID, e.Delta)
 	case MsgWindow:
 		f.store.addWindowTimestamp(e.Key, e.TS.Physical)
+	case MsgDelete:
+		f.store.delete(e.Key, e.TS)
 	}
 
 	// Record persistent sequence for catch-up after restart
@@ -533,6 +535,34 @@ func (f *Capacitor) Exists(ctx context.Context, key string) (bool, error) {
 	}
 	return exists, err
 }
+
+// Delete removes a key-value pair from the local store and replicates the deletion tombstone to the cluster.
+func (f *Capacitor) Delete(ctx context.Context, key string) error {
+	var start time.Time
+	if !f.disableMetrics {
+		start = time.Now()
+	}
+	ts := f.hlc.Now()
+
+	// 1. Local Write
+	if err := f.store.delete(key, ts); err != nil {
+		return err
+	}
+
+	// 2. Log Append
+	f.log.Append(LogEntry{
+		TS:     ts,
+		BornAt: time.Now().UnixNano(),
+		Op:     MsgDelete,
+		Key:    key,
+	})
+
+	if !f.disableMetrics {
+		f.metrics.SetLat.Record(time.Since(start))
+	}
+	return nil
+}
+
 
 
 // IncrementBy increments a distributed PN-Counter key by the specified delta.

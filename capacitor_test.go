@@ -290,3 +290,163 @@ func TestCapacitor_TTLReplicationAndEviction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, val2, "Key should be evicted on Node 2 after TTL expiration")
 }
+
+func TestCapacitor_ThreeNodeAllAPISync(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tmpDir1, err := os.MkdirTemp("", "capacitor-sync-n1-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir1)
+
+	tmpDir2, err := os.MkdirTemp("", "capacitor-sync-n2-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir2)
+
+	tmpDir3, err := os.MkdirTemp("", "capacitor-sync-n3-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir3)
+
+	cfg1 := capacitor.Config{
+		NodeID:     "node1",
+		BindPort:   19001,
+		StreamPort: 19002,
+		DataPath:   tmpDir1,
+	}
+	cfg2 := capacitor.Config{
+		NodeID:     "node2",
+		BindPort:   19003,
+		StreamPort: 19004,
+		DataPath:   tmpDir2,
+		Peers:      []string{"127.0.0.1:19001"},
+	}
+	cfg3 := capacitor.Config{
+		NodeID:     "node3",
+		BindPort:   19005,
+		StreamPort: 19006,
+		DataPath:   tmpDir3,
+		Peers:      []string{"127.0.0.1:19001"},
+	}
+
+	n1, err := capacitor.New(cfg1)
+	require.NoError(t, err)
+	defer n1.Close()
+
+	n2, err := capacitor.New(cfg2)
+	require.NoError(t, err)
+	defer n2.Close()
+
+	n3, err := capacitor.New(cfg3)
+	require.NoError(t, err)
+	defer n3.Close()
+
+	// Wait for all 3 nodes to discover each other
+	assert.Eventually(t, func() bool {
+		return n1.Memberlist().NumMembers() == 3 &&
+			n2.Memberlist().NumMembers() == 3 &&
+			n3.Memberlist().NumMembers() == 3
+	}, 10*time.Second, 100*time.Millisecond)
+
+	// 1. Test Set & Get Replication
+	err = n1.Set(ctx, "k1", "val1", 0)
+	require.NoError(t, err)
+
+	// Verify replicated to all nodes
+	assert.Eventually(t, func() bool {
+		v1, e1 := n1.Get(ctx, "k1")
+		v2, e2 := n2.Get(ctx, "k1")
+		v3, e3 := n3.Get(ctx, "k1")
+		return e1 == nil && v1 == "val1" &&
+			e2 == nil && v2 == "val1" &&
+			e3 == nil && v3 == "val1"
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// 2. Test GetScan (Complex Struct)
+	type testUser struct {
+		Name  string `msgpack:"name"`
+		Admin bool   `msgpack:"admin"`
+	}
+	user := testUser{Name: "Alice", Admin: adminValue()} // using a small helper or literal
+	user.Admin = true
+	err = n2.Set(ctx, "user-key", user, 0)
+	require.NoError(t, err)
+
+	// Scan on all nodes
+	assert.Eventually(t, func() bool {
+		var u1, u2, u3 testUser
+		e1 := n1.GetScan(ctx, "user-key", &u1)
+		e2 := n2.GetScan(ctx, "user-key", &u2)
+		e3 := n3.GetScan(ctx, "user-key", &u3)
+		return e1 == nil && u1.Name == "Alice" && u1.Admin &&
+			e2 == nil && u2.Name == "Alice" && u2.Admin &&
+			e3 == nil && u3.Name == "Alice" && u3.Admin
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// 3. Test Exists
+	found1, err := n1.Exists(ctx, "k1")
+	require.NoError(t, err)
+	assert.True(t, found1)
+
+	foundNon, err := n1.Exists(ctx, "nonexistent")
+	require.NoError(t, err)
+	assert.False(t, foundNon)
+
+	// 4. Test Increment (PN-Counter)
+	_, err = n1.Increment(ctx, "counter")
+	require.NoError(t, err)
+	_, err = n3.Increment(ctx, "counter")
+	require.NoError(t, err)
+
+	// Verify aggregated count is 2 on all nodes
+	assert.Eventually(t, func() bool {
+		c1, e1 := n1.GetCount(ctx, "counter")
+		c2, e2 := n2.GetCount(ctx, "counter")
+		c3, e3 := n3.GetCount(ctx, "counter")
+		return e1 == nil && c1 == 2 &&
+			e2 == nil && c2 == 2 &&
+			e3 == nil && c3 == 2
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// 5. Test Metrics/Gauges
+	_, err = n1.IncrementMetric(ctx, "resp-time", 10.0)
+	require.NoError(t, err)
+	_, err = n2.IncrementMetric(ctx, "resp-time", 30.0)
+	require.NoError(t, err)
+
+	// Verify metric is fully converged on all nodes (count=2, sum=40.0)
+	assert.Eventually(t, func() bool {
+		m1, e1 := n1.GetMetric(ctx, "resp-time")
+		m2, e2 := n2.GetMetric(ctx, "resp-time")
+		m3, e3 := n3.GetMetric(ctx, "resp-time")
+		return e1 == nil && m1.Count == 2 && m1.Sum == 40.0 &&
+			e2 == nil && m2.Count == 2 && m2.Sum == 40.0 &&
+			e3 == nil && m3.Count == 2 && m3.Sum == 40.0
+	}, 5*time.Second, 100*time.Millisecond)
+
+	// 6. Test sliding window rate limit
+	_, err = n2.IncrementSlidingWindow(ctx, "rate-limit", 1*time.Minute)
+	require.NoError(t, err)
+	// Just verify propagation without error
+	time.Sleep(200 * time.Millisecond)
+
+	// 7. Test Delete
+	err = n2.Delete(ctx, "k1")
+	require.NoError(t, err)
+
+	// Verify key is deleted (Get returns empty, Exists returns false) on all nodes
+	assert.Eventually(t, func() bool {
+		v1, e1 := n1.Get(ctx, "k1")
+		v2, e2 := n2.Get(ctx, "k1")
+		v3, e3 := n3.Get(ctx, "k1")
+		f1, _ := n1.Exists(ctx, "k1")
+		f2, _ := n2.Exists(ctx, "k1")
+		f3, _ := n3.Exists(ctx, "k1")
+		return e1 == nil && v1 == "" && !f1 &&
+			e2 == nil && v2 == "" && !f2 &&
+			e3 == nil && v3 == "" && !f3
+	}, 5*time.Second, 100*time.Millisecond)
+}
+
+func adminValue() bool {
+	return true
+}

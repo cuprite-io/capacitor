@@ -337,6 +337,7 @@ type valWithTS struct {
 	Value     any       `msgpack:"v"`
 	Timestamp Timestamp `msgpack:"t"`
 	ExpiresAt int64     `msgpack:"e,omitempty"`
+	Deleted   bool      `msgpack:"d,omitempty"`
 }
 
 func (s *store) set(key string, value any, ts Timestamp, ttl time.Duration) error {
@@ -363,6 +364,9 @@ func (s *store) get(key string) (any, error) {
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
 	if vTS, ok := shard.cache[key]; ok {
+		if vTS.Deleted {
+			return nil, nil
+		}
 		if vTS.ExpiresAt > 0 && time.Now().UnixNano() > vTS.ExpiresAt {
 			return nil, nil
 		}
@@ -376,12 +380,38 @@ func (s *store) exists(key string) (bool, error) {
 	shard.mu.RLock()
 	defer shard.mu.RUnlock()
 	if vTS, ok := shard.cache[key]; ok {
+		if vTS.Deleted {
+			return false, nil
+		}
 		if vTS.ExpiresAt > 0 && time.Now().UnixNano() > vTS.ExpiresAt {
 			return false, nil
 		}
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *store) delete(key string, ts Timestamp) error {
+	shard := s.getShard(key)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	if existing, ok := shard.cache[key]; ok && existing.Timestamp.GreaterOrEqual(ts) {
+		return nil
+	}
+
+	// Set tombstone in the cache with a 1 hour GC grace period
+	gcGrace := int64(1 * time.Hour)
+	expiresAt := ts.Physical + gcGrace
+
+	shard.cache[key] = valWithTS{
+		Value:     nil,
+		Timestamp: ts,
+		ExpiresAt: expiresAt,
+		Deleted:   true,
+	}
+	shard.dirty[key] = true
+	return nil
 }
 
 

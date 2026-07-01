@@ -220,3 +220,39 @@ func BenchmarkCapacitor_Exists(b *testing.B) {
 	}
 }
 
+func BenchmarkCapacitor_Delete(b *testing.B) {
+	tmpDir, err := os.MkdirTemp("", "capacitor-bench-delete-*")
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := capacitor.Config{
+		NodeID:         "bench-node",
+		DataPath:       tmpDir,
+		BindPort:       0,
+		DisableMetrics: true,
+	}
+
+	cp, err := capacitor.New(cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer cp.Close()
+
+	ctx := context.Background()
+
+	// Pre-populate a pool of 1,000 keys to avoid massive background disk write throttling
+	const poolSize = 1000
+	keys := make([]string, poolSize)
+	for i := 0; i < poolSize; i++ {
+		keys[i] = fmt.Sprintf("key-%d", i)
+		_ = cp.Set(ctx, keys[i], "value", 0)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = cp.Delete(ctx, keys[i%poolSize])
+	}
+}
